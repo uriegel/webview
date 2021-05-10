@@ -124,7 +124,7 @@ fn main() {
             0,
             class_name.as_ptr(),
             window_title.as_ptr(),
-            WS_OVERLAPPEDWINDOW,
+            WS_POPUP | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
             MulDiv(width, dpi, USER_DEFAULT_SCREEN_DPI),
@@ -157,6 +157,8 @@ fn main() {
         env.unwrap().create_controller(hwnd, move |c| {
             let c = c.unwrap();
 
+            
+
             let mut r = unsafe { mem::zeroed() };
             unsafe {
                 GetClientRect(hwnd, &mut r);
@@ -164,6 +166,19 @@ fn main() {
             c.put_bounds(r).unwrap();
 
             let w = c.get_webview().unwrap();
+            w.add_script_to_execute_on_document_created(r"document.addEventListener('mousedown', function (event)
+            {
+                let jsonObject =
+                {
+                    Key: 'mousedown',
+                    Value:
+                    {
+                        X: event.screenX,
+                        Y: event.screenY
+                    }
+                };
+                window.chrome.webview.postMessage(JSON.stringify(jsonObject));
+            });", |a|Ok(())).unwrap();
             w.navigate("https://caesar2go.caseris.de/web/timio").unwrap();
             // Communication.
 //             w.navigate_to_string(r##"
@@ -180,15 +195,20 @@ fn main() {
 //     // Send message to host.
 //     window.chrome.webview.postMessage(inputElement.value);
 // });
-// // Receive from host.
-// window.chrome.webview.addEventListener('message', event => alert('Received message: ' + event.data));
+// // Receive from host.//window.chrome.webview.addEventListener('message', event => alert('Received message: ' + event.data));
 // </script>
 // "##).unwrap();
 //             // Receive message from webpage.
-            w.add_web_message_received(|w, msg| {
+            let affe = hwnd.clone();
+            w.add_web_message_received(move |w, msg| {
                 let msg = msg.try_get_web_message_as_string()?;
                 // Send it back.
-                w.post_web_message_as_string(&msg)
+                let h = msg.to_string();
+                unsafe {
+                    PostMessageW(affe, WM_NCLBUTTONDOWN, 2, 0);                
+                }
+                Ok(())
+                //w.post_web_message_as_string(&msg)
             }).unwrap();
             controller_clone.set(c).unwrap();
             Ok(())
