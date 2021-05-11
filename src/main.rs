@@ -166,44 +166,77 @@ fn main() {
             c.put_bounds(r).unwrap();
 
             let w = c.get_webview().unwrap();
-            w.add_script_to_execute_on_document_created(r"document.addEventListener('mousedown', function (event)
-            {
-                let jsonObject =
-                {
-                    Key: 'mousedown',
-                    Value:
-                    {
-                        X: event.screenX,
-                        Y: event.screenY
-                    }
-                };
-                window.chrome.webview.postMessage(JSON.stringify(jsonObject));
-            });", |a|Ok(())).unwrap();
-            w.navigate("https://caesar2go.caseris.de/web/timio").unwrap();
+            w.add_script_to_execute_on_document_created(r"document.addEventListener('mousedown', evt => {
+                const { target } = evt;
+                const appRegion = getComputedStyle(target)['-webkit-app-region'];
+        
+                //if (appRegion === 'drag') {
+                    //chrome.webview.hostObjects.sync.eventForwarder.MouseDownDrag();
+                    window.chrome.webview.postMessage('drag');
+                    evt.preventDefault();
+                    evt.stopPropagation();
+                //}
+            });
+            
+            
+            // document.addEventListener('mousedown', function (event)
+            // {
+            //     let jsonObject =
+            //     {
+            //         Key: 'mousedown',
+            //         Value:
+            //         {
+            //             X: event.screenX,
+            //             Y: event.screenY
+            //         }
+            //     };
+            //    window.chrome.webview.postMessage(JSON.stringify(jsonObject));
+            //}
+            ", |a|Ok(())).unwrap();
+            //w.navigate("https://caesar2go.caseris.de/web/timio").unwrap();
+
+
+            
             // Communication.
-//             w.navigate_to_string(r##"
-// <!doctype html>
-// <title>Demo</title>
-// <form action="javascript:void(0);">
-//     <label for="message-input">Message: </label
-//     ><input id="message-input" type="text"
-//     ><button type="submit">Send</button>
-// </form>
-// <script>
-// const inputElement = document.getElementById('message-input');
-// document.getElementsByTagName('form')[0].addEventListener('submit', e => {
-//     // Send message to host.
-//     window.chrome.webview.postMessage(inputElement.value);
-// });
-// // Receive from host.//window.chrome.webview.addEventListener('message', event => alert('Received message: ' + event.data));
-// </script>
-// "##).unwrap();
+            w.navigate_to_string(r##"
+<!doctype html>
+<html>
+<head>
+<title>Demo</title>
+<style>
+    h2 {
+        --webkit-app-region: drag;
+    }
+</style>
+</head>
+<body>
+    <h1> Die Überschrift</h1>
+    <h2> Hier Fenster ziehen</h2>
+    <p>Das ist der Inhalt</p>
+
+    <script>
+    console.log('Affe')
+    document.body.addEventListener('mousedown', evt => {
+        const { target } = evt;
+        const appRegion = getComputedStyle(target)['-webkit-app-region'];
+
+        if (appRegion === 'drag') {
+            //chrome.webview.hostObjects.sync.eventForwarder.MouseDownDrag();
+            window.chrome.webview.postMessage('drag');
+            evt.preventDefault();
+            evt.stopPropagation();
+        }
+    });    
+    </script>
+</body>
+</html>
+"##).unwrap();
 //             // Receive message from webpage.
             let affe = hwnd.clone();
             w.add_web_message_received(move |w, msg| {
-                let msg = msg.try_get_web_message_as_string()?;
-                // Send it back.
-                let h = msg.to_string();
+                // let msg = msg.try_get_web_message_as_string()?;
+                // // Send it back.
+                // let h = msg.to_string();
                 unsafe {
                     PostMessageW(affe, WM_NCLBUTTONDOWN, 2, 0);                
                 }
