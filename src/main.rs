@@ -3,7 +3,7 @@
 //! Also features communication between the webpage and the host.
 
 use once_cell::unsync::OnceCell;
-use std::mem;
+use std::{convert::TryInto, mem};
 use std::ptr;
 use std::rc::Rc;
 use webview2::Controller;
@@ -90,6 +90,25 @@ fn main() {
         _ => unsafe { DefWindowProcW(hwnd, msg, w_param, l_param) },
     };
 
+    // Child Window procedure.
+    let child_wnd_proc = move |hwnd, msg, w_param, l_param| match msg {
+        // WM_NCHITTEST => {
+        //     unsafe {
+        //         let res = SendMessageA(GetParent(hwnd), msg, w_param, l_param);
+        //         return HTTRANSPARENT
+        //     }
+        // }
+
+        WM_LBUTTONDOWN=>  {
+            unsafe {
+                SendMessageA(GetParent(hwnd), WM_NCLBUTTONDOWN, HTCAPTION.try_into().unwrap(), 0);
+            }
+            return 0;
+        }
+
+        _ => unsafe { DefWindowProcW(hwnd, msg, w_param, l_param) },
+    };
+
     // Register window class. (Standard windows GUI boilerplate).
     let class_name = utf_16_null_terminiated("WebView2 Win32 Class");
     let h_instance = unsafe { GetModuleHandleW(ptr::null()) };
@@ -104,6 +123,30 @@ fn main() {
     };
     unsafe {
         if RegisterClassW(&class) == 0 {
+            message_box(
+                ptr::null_mut(),
+                &format!("RegisterClassW failed: {}", std::io::Error::last_os_error()),
+                "Error",
+                MB_ICONERROR | MB_OK,
+            );
+            return;
+        }
+    }
+
+    //Register caption window class. (Standard windows GUI boilerplate).
+    let child_class_name = utf_16_null_terminiated("Caption Win32 Class");
+    unsafe {
+        let child_class = WNDCLASSW {
+            style: CS_HREDRAW | CS_VREDRAW,
+            hCursor: unsafe { LoadCursorW(ptr::null_mut(), IDC_ARROW) },
+            lpfnWndProc: Some(unsafe { wnd_proc_helper::as_global_child_wnd_proc(child_wnd_proc) }),
+            lpszClassName: child_class_name.as_ptr(),
+            hInstance: h_instance,
+            //hbrBackground: (COLOR_BTNFACE + 1) as HBRUSH,
+            hbrBackground: GetStockObject(NULL_BRUSH.try_into().unwrap()) as HBRUSH,
+            ..unsafe { mem::zeroed() }
+        };
+        if RegisterClassW(&child_class) == 0 {
             message_box(
                 ptr::null_mut(),
                 &format!("RegisterClassW failed: {}", std::io::Error::last_os_error()),
@@ -257,6 +300,24 @@ fn main() {
         return;
     }
 
+    let child_hwnd = unsafe {
+        CreateWindowExW(
+            0,
+            child_class_name.as_ptr(),
+            window_title.as_ptr(),
+            WS_CHILD | WS_VISIBLE,
+            0,
+            0,
+            200,
+            50,
+            hwnd,
+            ptr::null_mut(),
+            h_instance,
+            ptr::null_mut(),
+        )
+    };
+
+
     // Message loop. (Standard windows GUI boilerplate).
     let mut msg: MSG = unsafe { mem::zeroed() };
     while unsafe { GetMessageW(&mut msg, ptr::null_mut(), 0, 0) } > 0 {
@@ -307,6 +368,7 @@ mod wnd_proc_helper {
     unsafe impl<T: Copy> Sync for UnsafeSyncCell<T> {}
 
     static GLOBAL_F: UnsafeSyncCell<usize> = UnsafeSyncCell::new(0);
+    static GLOBAL_F_CHILD: UnsafeSyncCell<usize> = UnsafeSyncCell::new(0);
 
     /// Use a closure as window procedure.
     ///
@@ -345,4 +407,37 @@ mod wnd_proc_helper {
 
         wnd_proc::<F>
     }
-}
+
+    pub unsafe fn as_global_child_wnd_proc<F: Fn(HWND, UINT, WPARAM, LPARAM) -> isize + 'static>(
+        f: F,
+    ) -> unsafe extern "system" fn(hwnd: HWND, msg: UINT, w_param: WPARAM, l_param: LPARAM) -> isize
+    {
+        let f_ptr = Box::into_raw(Box::new(f));
+        GLOBAL_F_CHILD.set(f_ptr as usize);
+
+        unsafe extern "system" fn wnd_proc<F: Fn(HWND, UINT, WPARAM, LPARAM) -> isize + 'static>(
+            hwnd: HWND,
+            msg: UINT,
+            w_param: WPARAM,
+            l_param: LPARAM,
+        ) -> isize {
+            let f_ptr = GLOBAL_F.get() as *mut F;
+
+            if msg == WM_DESTROY {
+                Box::from_raw(f_ptr);
+                GLOBAL_F.set(0);
+                PostQuitMessage(0);
+                return 0;
+            }
+
+            if !f_ptr.is_null() {
+                let f = &*f_ptr;
+
+                f(hwnd, msg, w_param, l_param)
+            } else {
+                DefWindowProcW(hwnd, msg, w_param, l_param)
+            }
+        }
+
+        wnd_proc::<F>
+    }}
